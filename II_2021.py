@@ -1,6 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
- 
+
 # The modules required
 import sys
 import socket
@@ -8,17 +8,15 @@ from struct import unpack, pack, calcsize
 import random
 import string
 
-'''
-This is a template that can be used in order to get started. 
-It takes 3 commandline arguments and calls function send_and_receive_tcp.
-in haapa7 you can execute this file with the command: 
-python3 CourseWorkTemplate.py <ip> <port> <message> 
+# This is a template that can be used in order to get started.
+# It takes 3 commandline arguments and calls function send_and_receive_tcp.
+# in haapa7 you can execute this file with the command:
+# python3 CourseWorkTemplate.py <ip> <port> <message>
 
-Functions send_and_receive_tcp contains some comments.
-If you implement what the comments ask for you should be able to create 
-a functioning TCP part of the course work with little hassle.  
+# Functions send_and_receive_tcp contains some comments.
+# If you implement what the comments ask for you should be able to create
+# a functioning TCP part of the course work with little hassle.
 
-''' 
 
 # python coursework.py 195.148.20.105 10000 HELLO\r\n
 
@@ -39,7 +37,7 @@ def send_and_receive_tcp(address, port, msg):
     og_msg = msg
 
     print("You gave arguments: {} {} {}".format(address, port, msg))
-    
+
     # creates TCP socket
     tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # connects socket to given address and port
@@ -63,7 +61,7 @@ def send_and_receive_tcp(address, port, msg):
     # saves received keys for decryption
     if ENC:
         global dec_keylist
-        dec_keylist = msg_recv.split("\r\n")[:21] 
+        dec_keylist = msg_recv.split("\r\n")[:-1]
         msg_recv = dec_keylist.pop(0)
 
     # prints received message without keys
@@ -72,7 +70,7 @@ def send_and_receive_tcp(address, port, msg):
 
     # closes the socket
     tcp_socket.close()
-    
+
     # get your CID and UDP port from the message
     cid, udp_port = msg_recv.split(" ")[1:]
     udp_port = int(udp_port)
@@ -81,8 +79,8 @@ def send_and_receive_tcp(address, port, msg):
     send_and_receive_udp(address, udp_port, cid)
 
     return
- 
- 
+
+
 def send_and_receive_udp(address, port, cid):
     """ UDP communication
     """
@@ -110,7 +108,7 @@ def send_and_receive_udp(address, port, cid):
                 msg = crypt_msg(msg, key)
             except IndexError:
                 print("No more keys. Messages are no longer encrypted.")
-    
+
         # parity
         if PAR:
             msg = add_parity(msg)
@@ -144,16 +142,16 @@ def send_and_receive_udp(address, port, cid):
                     msg_recv = crypt_msg(msg_recv, key)
                 except IndexError:
                     ENC = False # no more keys
-            
+
         if ack:
             rcount += 1
             print("{:<22}{}".format("SERVER (UDP, {}):".format(rcount), msg_recv))
             msg = reverse_words(msg_recv)
         else:
-            print("Received corrupted message from server.")    
+            print("Received corrupted message from server.")
     return
-    
- 
+
+
 def form_udp_packet(cid, ack, con_len, content):
     """ Forms the UDP-packet
     """
@@ -174,14 +172,14 @@ def reverse_words(msg):
     """
     # creates list from words
     words = msg.split(" ")
-    
+
     # happens usually when decryption is wrong
     assert len(words) > 1, "only one word to reverse, could be decrypting gone wrong"
     # reverses list
     words.reverse()
     # makes a string from list
     msg = " ".join(words)
-    
+
     return msg
 
 def generate_keys():
@@ -210,7 +208,7 @@ def crypt_msg(msg, key):
     cr_msg = ""
     for a, b in zip(msg, key):
         cr_msg += chr(ord(a) ^ ord(b))
-    
+
     return cr_msg
 
 def add_parity(msg):
@@ -224,7 +222,7 @@ def add_parity(msg):
     return new_msg
 
 def check_parity(msg):
-    """ Checks parity and returns decoded message if no errors. Returns False if error found. 
+    """ Checks parity and returns decoded message if no errors. Returns False if error found.
     """
     new_msg = ""
     for ch in msg:
@@ -233,9 +231,9 @@ def check_parity(msg):
         n = n >> 1
         if p != get_parity(n):
             return False
-        
+
         new_msg += chr(n)
-    
+
     return new_msg
 
 def get_parity(n):
@@ -247,8 +245,10 @@ def get_parity(n):
 
 
 def main():
+    """ main function
+    """
     USAGE = 'usage: %s <server address> <server port> <message>' % sys.argv[0]
- 
+
     try:
         # Get the server address, port and message from command line arguments
         server_address = str(sys.argv[1])
@@ -267,8 +267,8 @@ def main():
     MUL = "MUL" in message
     PAR = "PAR" in message
     send_and_receive_tcp(server_address, server_tcpport, message)
- 
- 
+
+
 if __name__ == '__main__':
     # Call the main function when this script is executed
     main()
