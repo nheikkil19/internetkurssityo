@@ -24,147 +24,133 @@ a functioning TCP part of the course work with little hassle.
 
 BUFFERSIZE = 2048       # size of the receive buffer
 FS = "!8s??hh128s"      # format string for UDP-packet
+ENC = MUL = PAR = False
 
 enc_keylist = []        # encryption keys are stored here
 dec_keylist = []        # decryption keys are stored here
 
 
-def send_and_receive_tcp(address, port, message):
+def send_and_receive_tcp(address, port, msg):
     """ TCP communication
     """
     # counters for sent and received messages
-    scount = 0
-    rcount = 0
+    scount = rcount = 0
+    # copy the original message
+    og_msg = msg
 
-    print("You gave arguments: {} {} {}".format(address, port, message))
+    print("You gave arguments: {} {} {}".format(address, port, msg))
     
-    tcp_msg = message
-    
-    # create TCP socket
+    # creates TCP socket
     tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # connect socket to given address and port
+    # connects socket to given address and port
     tcp_socket.connect((address, port))
 
     # adds the ending to the message
-    tcp_msg += "\r\n"
+    msg += "\r\n"
 
-    # ******    IF ENCRYPTION           **********
-    if "ENC" in message:
-        print("ENC = TRUE")
+    # encryption
+    if ENC:
         # generates keys and adds them to message
-        tcp_msg += generate_keys()
+        msg += generate_keys()
 
-    # *******   ENCRYPTION PART ENDS    **********
-
-    # send message
-    tcp_socket.sendall(tcp_msg.encode())
+    # sends message
+    tcp_socket.sendall(msg.encode())
     scount += 1
-    print("CLIENT (TCP, {}):    {}".format(scount, message))        # keys not printed
-
+    print("{:<22}{}".format("CLIENT (TCP, {}):".format(scount), og_msg))   # keys not printed
     # receive data from socket
     msg_recv = tcp_socket.recv(BUFFERSIZE).decode()
 
-    # ******    IF ENCRYPTION           **********
-    if "ENC" in message:
+    # saves received keys for decryption
+    if ENC:
         global dec_keylist
         dec_keylist = msg_recv.split("\r\n")[:21] 
         msg_recv = dec_keylist.pop(0)
 
-    # *******   ENCRYPTION PART ENDS    **********
-
-    # print received message without keys
+    # prints received message without keys
     rcount += 1
-    print("SERVER (TCP, {}):    {}".format(rcount, msg_recv))
+    print("{:<22}{}".format("SERVER (TCP, {}):".format(rcount), msg_recv))
 
-    # close the socket
+    # closes the socket
     tcp_socket.close()
     
-    # Get your CID and UDP port from the message
+    # get your CID and UDP port from the message
     cid, udp_port = msg_recv.split(" ")[1:]
     udp_port = int(udp_port)
 
-    # Continue to UDP messaging
-    send_and_receive_udp(address, udp_port, cid, message)
+    # continue to UDP messaging
+    send_and_receive_udp(address, udp_port, cid)
 
     return
  
  
-def send_and_receive_udp(address, port, cid, tcp_msg):
+def send_and_receive_udp(address, port, cid):
     """ UDP communication
     """
+    global ENC
     # counters for sent and received messages
-    scount = 0
-    rcount = 0
-    # init end of message as false
-    eom = False
-    ack = True
+    scount = rcount = 0
+    # init end of message and acknowledgement
+    eom, ack = False, True
+
+    # creates the first message
+    msg = "Hello from {}".format(cid)
     # creates udp socket
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
-    msg = "Hello from {}".format(cid)
-
     # loop
-    while True:
+    run = True
+    while run:
         scount += 1
-        print("CLIENT (UDP, {}):    {}".format(scount, msg))
+        print("{:<22}{}".format("CLIENT (UDP, {}):".format(scount), msg))
         msg_len = len(msg)
-        # ******    ENCRYPT STARTS      *******
-        if "ENC" in tcp_msg:
+
+        # encryption
+        if ENC:
             try:
                 key = enc_keylist.pop(0)
                 msg = crypt_msg(msg, key)
-            
             except IndexError:
-                # TODO: CREATE ENCRYPTION FLAG AND OTHER FLAGS AS WELL.
-                print("No more keys. Messages are no longer encrypted.")        
-        # ******    ENCRYPT STOPS       *******
-        # ******    PARITY STARTS       *******
-        if "PAR" in tcp_msg:
+                print("No more keys. Messages are no longer encrypted.")
+    
+        # parity
+        if PAR:
             msg = add_parity(msg)
-        # ******    PARITY STOPS        *******
 
         # creates packet
         packet = form_udp_packet(cid, ack, msg_len, msg)
-                
         # sends packet
         sent_bytes = udp_socket.sendto(packet, (address, port))
         assert sent_bytes == calcsize(FS), "All bytes not sent"
-
         # receives packet
         packet_recv = udp_socket.recv(BUFFERSIZE)
         # reads the message from the received packet
         eom, msg_recv = unpack_udp_packet(packet_recv)
 
-        if not eom:
-            if "PAR" in tcp_msg:
+        if eom:
+            run = False
+        else:
+            if PAR:
                 msg_recv = check_parity(msg_recv)
-                if not msg_recv:
-                    msg, ack = "Send again", False
-                else:
+                if msg_recv:
                     ack = True
+                else:
+                    msg, ack = "Send again", False
+                    # delete key that wasn't used
+                    dec_keylist.pop(0)
 
-            # ******    DECRYPT STARTS      ******
-            if "ENC" in tcp_msg:
+            # decryption
+            if ENC and ack:
                 try:
                     key = dec_keylist.pop(0)
-                    if ack:
-                        msg_recv = crypt_msg(msg_recv, key)
-                
+                    msg_recv = crypt_msg(msg_recv, key)
                 except IndexError:
-                    pass
+                    ENC = False # no more keys
             
-                # assert (msg_recv[0] in string.ascii_lowercase), "decrypting gone wrong"
-            # ******    DECRYPT STOPS       ******
-            
-        rcount += 1
-        print("SERVER (UDP, {}):    {}".format(rcount, msg_recv))
-
-        # break the loop
-        if eom:
-            break
         if ack:
+            rcount += 1
+            print("{:<22}{}".format("SERVER (UDP, {}):".format(rcount), msg_recv))
             msg = reverse_words(msg_recv)
-    
+        else:
+            print("Received corrupted message from server.")    
     return
     
  
@@ -231,7 +217,7 @@ def add_parity(msg):
     """ Adds parity bit to each character of a message.
     """
     new_msg = ""
-    for i, ch in enumerate(msg):
+    for ch in msg:
         n = ord(ch)
         n = (n << 1) + get_parity(n)
         new_msg += chr(n)
@@ -241,7 +227,7 @@ def check_parity(msg):
     """ Checks parity and returns decoded message if no errors. Returns False if error found. 
     """
     new_msg = ""
-    for i, ch in enumerate(msg):
+    for ch in msg:
         n = ord(ch)
         p = 1 & n
         n = n >> 1
@@ -260,7 +246,6 @@ def get_parity(n):
     return n
 
 
-
 def main():
     USAGE = 'usage: %s <server address> <server port> <message>' % sys.argv[0]
  
@@ -275,7 +260,12 @@ def main():
         print("Value Error")
     # Print usage instructions and exit if we didn't get proper arguments
         sys.exit(USAGE)
- 
+
+    # extra features
+    global ENC, MUL, PAR
+    ENC = "ENC" in message
+    MUL = "MUL" in message
+    PAR = "PAR" in message
     send_and_receive_tcp(server_address, server_tcpport, message)
  
  
