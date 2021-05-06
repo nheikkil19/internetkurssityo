@@ -22,11 +22,11 @@ a functioning TCP part of the course work with little hassle.
 
 # python coursework.py 195.148.20.105 10000 HELLO\r\n
 
-BUFFERSIZE = 2048
-FS = "!8s??hh128s"
+BUFFERSIZE = 2048       # size of the receive buffer
+FS = "!8s??hh128s"      # format string for UDP-packet
 
-enc_keylist = []
-dec_keylist = []
+enc_keylist = []        # encryption keys are stored here
+dec_keylist = []        # decryption keys are stored here
 
 
 def send_and_receive_tcp(address, port, message):
@@ -97,7 +97,7 @@ def send_and_receive_udp(address, port, cid, tcp_msg):
     rcount = 0
     # init end of message as false
     eom = False
-
+    ack = True
     # creates udp socket
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
@@ -105,65 +105,74 @@ def send_and_receive_udp(address, port, cid, tcp_msg):
 
     # loop
     while True:
-        # ******    ENCRYPT STARTS      ******
-
+        scount += 1
+        print("CLIENT (UDP, {}):    {}".format(scount, msg))
+        msg_len = len(msg)
+        # ******    ENCRYPT STARTS      *******
         if "ENC" in tcp_msg:
             try:
                 key = enc_keylist.pop(0)
-                enc_msg = crypt_msg(msg, key)
+                msg = crypt_msg(msg, key)
             
             except IndexError:
-                print("No more keys. Messages are no longer encrypted.")
-        
-        # ******    ENCRYPT STOPS       ******
+                # TODO: CREATE ENCRYPTION FLAG AND OTHER FLAGS AS WELL.
+                print("No more keys. Messages are no longer encrypted.")        
+        # ******    ENCRYPT STOPS       *******
+        # ******    PARITY STARTS       *******
+        if "PAR" in tcp_msg:
+            msg = add_parity(msg)
+        # ******    PARITY STOPS        *******
 
         # creates packet
-        packet = form_udp_packet(cid, enc_msg)
+        packet = form_udp_packet(cid, ack, msg_len, msg)
                 
         # sends packet
         sent_bytes = udp_socket.sendto(packet, (address, port))
         assert sent_bytes == calcsize(FS), "All bytes not sent"
-        scount += 1
-        print("CLIENT (UDP, {}):    {}".format(scount, msg))
 
         # receives packet
         packet_recv = udp_socket.recv(BUFFERSIZE)
         # reads the message from the received packet
         eom, msg_recv = unpack_udp_packet(packet_recv)
 
+        if not eom:
+            if "PAR" in tcp_msg:
+                msg_recv = check_parity(msg_recv)
+                if not msg_recv:
+                    msg, ack = "Send again", False
+                else:
+                    ack = True
 
-        # ******    DECRYPT STARTS      ******
-
-        if ("ENC" in tcp_msg) and not eom:
-            try:
-                key = dec_keylist.pop(0)
-                msg_recv = crypt_msg(msg_recv, key)
+            # ******    DECRYPT STARTS      ******
+            if "ENC" in tcp_msg:
+                try:
+                    key = dec_keylist.pop(0)
+                    if ack:
+                        msg_recv = crypt_msg(msg_recv, key)
+                
+                except IndexError:
+                    pass
             
-            except IndexError:
-                pass
-        
-            assert (msg_recv[0] in string.ascii_lowercase), "decrypting gone wrong"
-
-        # ******    DECRYPT STOPS       ******
+                # assert (msg_recv[0] in string.ascii_lowercase), "decrypting gone wrong"
+            # ******    DECRYPT STOPS       ******
+            
         rcount += 1
         print("SERVER (UDP, {}):    {}".format(rcount, msg_recv))
 
         # break the loop
         if eom:
             break
-        
-        msg = reverse_words(msg_recv)
+        if ack:
+            msg = reverse_words(msg_recv)
     
     return
     
  
-def form_udp_packet(cid, content):
+def form_udp_packet(cid, ack, con_len, content):
     """ Forms the UDP-packet
     """
-    # calculates the message lenght
-    msg_len = len(content)
     # packs the data
-    data = pack(FS, cid.encode(), True, True, 0, msg_len, content.encode())
+    data = pack(FS, cid.encode(), ack, True, 0, con_len, content.encode())
     return data
 
 def unpack_udp_packet(packet):
@@ -192,20 +201,19 @@ def reverse_words(msg):
 def generate_keys():
     """ Function for generating encryption keys.
     """
-    KEYCOUNT = 20
-    KEYLENGTH = 64
+    KEYCOUNT = 20       # amount of keys generated
+    KEYLENGTH = 64      # length of a key
 
     letters = string.ascii_lowercase
     msg = ""
-
     for _ in range(KEYCOUNT):
         # generate and save key
         key = "".join(random.choices(letters, k=KEYLENGTH))
         enc_keylist.append(key)
-
         # add to the message
         msg += key + "\r\n"
 
+    # ending of the message
     msg += ".\r\n"
 
     return msg
@@ -219,7 +227,40 @@ def crypt_msg(msg, key):
     
     return cr_msg
 
- 
+def add_parity(msg):
+    """ Adds parity bit to each character of a message.
+    """
+    new_msg = ""
+    for i, ch in enumerate(msg):
+        n = ord(ch)
+        n = (n << 1) + get_parity(n)
+        new_msg += chr(n)
+    return new_msg
+
+def check_parity(msg):
+    """ Checks parity and returns decoded message if no errors. Returns False if error found. 
+    """
+    new_msg = ""
+    for i, ch in enumerate(msg):
+        n = ord(ch)
+        p = 1 & n
+        n = n >> 1
+        if p != get_parity(n):
+            return False
+        
+        new_msg += chr(n)
+    
+    return new_msg
+
+def get_parity(n):
+    """ Gets parity bit for number
+    """
+    while n > 1:
+        n = (n >> 1) ^ (n & 1)
+    return n
+
+
+
 def main():
     USAGE = 'usage: %s <server address> <server port> <message>' % sys.argv[0]
  
