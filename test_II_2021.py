@@ -13,3 +13,9 @@ def test_get_parity(test_input, expected):
 @pytest.mark.parametrize("test_input", ["a", "123411", "2asfdsah", "3", "   ", "dlksafu89%)(/(/!#"])
 def test_parity(test_input):
     assert test_input == ii.check_parity(ii.add_parity(test_input))
+
+
+@pytest.mark.parametrize("test_msg, test_len, expected", [("kala", 2, ["ka", "la"]), ("perunaperunaperunaperuna", 6, ["peruna"]*4), 
+("omenaomenaome", 5, ["omena", "omena", "ome"])])
+def test_split_msg(test_msg, test_len, expected):
+    assert expected == ii.split_msg(test_msg, test_len)

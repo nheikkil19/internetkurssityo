@@ -7,6 +7,7 @@ import socket
 from struct import unpack, pack, calcsize
 import random
 import string
+from math import ceil
 
 # This is a template that can be used in order to get started.
 # It takes 3 commandline arguments and calls function send_and_receive_tcp.
@@ -99,29 +100,52 @@ def send_and_receive_udp(address, port, cid):
     while run:
         scount += 1
         print("{:<22}{}".format("CLIENT (UDP, {}):".format(scount), msg))
-        msg_len = len(msg)
+        
 
-        # encryption
-        if ENC:
-            try:
-                key = enc_keylist.pop(0)
-                msg = crypt_msg(msg, key)
-            except IndexError:
-                print("No more keys. Messages are no longer encrypted.")
+    
 
-        # parity
-        if PAR:
-            msg = add_parity(msg)
+        rm = len(msg)
+        for piece in split_msg(msg):
+            con_len = len(piece)
+            rm -= con_len
 
-        # creates packet
-        packet = form_udp_packet(cid, ack, msg_len, msg)
-        # sends packet
-        sent_bytes = udp_socket.sendto(packet, (address, port))
-        assert sent_bytes == calcsize(FS), "All bytes not sent"
-        # receives packet
-        packet_recv = udp_socket.recv(BUFFERSIZE)
-        # reads the message from the received packet
-        eom, msg_recv = unpack_udp_packet(packet_recv)
+            # encryption
+            if ENC:
+                try:
+                    key = enc_keylist.pop(0)
+                    piece = crypt_msg(piece, key)
+                except IndexError:
+                    print("No more keys. Messages are no longer encrypted.")
+
+            
+            # parity
+            if PAR:
+                piece = add_parity(piece)
+
+
+            
+            # creates packet
+            packet = form_udp_packet(cid, ack, rm, con_len, piece)
+            # sends packet
+            sent_bytes = udp_socket.sendto(packet, (address, port))
+            assert sent_bytes == calcsize(FS), "All bytes not sent"
+
+            # print("eom, dr, content", unpack_udp_packet(packet))
+            # print("sent", len(piece), len(piece.encode()), "rm =", rm)
+            # print("Packet sent")
+        
+        msg_recv = ""
+        while True:
+            # receives packet
+            packet_recv = udp_socket.recv(BUFFERSIZE)
+            # reads the message from the received packet
+            eom, dr, piece_recv = unpack_udp_packet(packet_recv)
+            msg_recv += piece_recv
+            # print("received", len(piece_recv))
+            # print("Packet received")
+            if dr == 0:
+                break
+
 
         if eom:
             run = False
@@ -132,16 +156,23 @@ def send_and_receive_udp(address, port, cid):
                     ack = True
                 else:
                     msg, ack = "Send again", False
-                    # delete key that wasn't used
-                    dec_keylist.pop(0)
+                    # remove key that will not be used used
+                    try:
+                        key = dec_keylist.pop(0)
+                    except IndexError:
+                        ENC = False # no more keys
 
             # decryption
             if ENC and ack:
-                try:
-                    key = dec_keylist.pop(0)
-                    msg_recv = crypt_msg(msg_recv, key)
-                except IndexError:
-                    ENC = False # no more keys
+                temp = ""
+                for dec_piece in split_msg(msg_recv):
+                    try:
+                        key = dec_keylist.pop(0)
+                    except IndexError:
+                        ENC = False # no more keys
+                    temp += crypt_msg(dec_piece, key)
+                msg_recv = temp
+                
 
         if ack:
             rcount += 1
@@ -152,11 +183,11 @@ def send_and_receive_udp(address, port, cid):
     return
 
 
-def form_udp_packet(cid, ack, con_len, content):
+def form_udp_packet(cid, ack, rm, con_len, content):
     """ Forms the UDP-packet
     """
     # packs the data
-    data = pack(FS, cid.encode(), ack, True, 0, con_len, content.encode())
+    data = pack(FS, cid.encode(), ack, False, rm, con_len, content.encode())
     return data
 
 def unpack_udp_packet(packet):
@@ -165,7 +196,7 @@ def unpack_udp_packet(packet):
     # unpack packet
     cid, ack, eom, dr, cl, content = unpack(FS, packet)
     # return content without padding
-    return eom, content.decode()[:cl]
+    return eom, dr, content.decode()[:cl]
 
 def reverse_words(msg):
     """ Reverses words separated by space.
@@ -242,6 +273,14 @@ def get_parity(n):
     while n > 1:
         n = (n >> 1) ^ (n & 1)
     return n
+
+def split_msg(msg, length=64):
+    """ Splits message into given length and returns list of pieces.
+    """
+    pieces = []
+    for i in range(ceil(len(msg) / length)):
+        pieces.append(msg[length*i:length*(i+1)])
+    return pieces
 
 
 def main():
