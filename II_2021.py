@@ -62,7 +62,7 @@ def send_and_receive_tcp(address, port, msg):
     # saves received keys for decryption
     if ENC:
         global dec_keylist
-        dec_keylist = msg_recv.split("\r\n")[:-1]
+        dec_keylist = msg_recv.split("\r\n")[:-2]
         msg_recv = dec_keylist.pop(0)
 
     # prints received message without keys
@@ -85,7 +85,6 @@ def send_and_receive_tcp(address, port, msg):
 def send_and_receive_udp(address, port, cid):
     """ UDP communication
     """
-    global ENC
     # counters for sent and received messages
     scount = rcount = 0
     # init end of message and acknowledgement
@@ -110,12 +109,10 @@ def send_and_receive_udp(address, port, cid):
             rm -= con_len
 
             # encryption
-            if ENC:
-                try:
-                    key = enc_keylist.pop(0)
-                    piece = crypt_msg(piece, key)
-                except IndexError:
-                    print("No more keys. Messages are no longer encrypted.")
+            if ENC and enc_keylist:
+                key = enc_keylist.pop(0)
+                piece = crypt_msg(piece, key)
+
 
             
             # parity
@@ -151,26 +148,18 @@ def send_and_receive_udp(address, port, cid):
             run = False
         else:
             if PAR:
-                msg_recv = check_parity(msg_recv)
-                if msg_recv:
-                    ack = True
-                else:
-                    msg, ack = "Send again", False
-                    # remove key that will not be used used
-                    try:
-                        key = dec_keylist.pop(0)
-                    except IndexError:
-                        ENC = False # no more keys
+                msg_recv, ack = check_parity(msg_recv)
+                if not ack:
+                    msg = "Send again"
 
             # decryption
-            if ENC and ack:
+            if ENC:
                 temp = ""
                 for dec_piece in split_msg(msg_recv):
-                    try:
+                    if dec_keylist:
                         key = dec_keylist.pop(0)
-                    except IndexError:
-                        ENC = False # no more keys
-                    temp += crypt_msg(dec_piece, key)
+                        dec_piece = crypt_msg(dec_piece, key)
+                    temp += dec_piece
                 msg_recv = temp
                 
 
@@ -255,17 +244,18 @@ def add_parity(msg):
 def check_parity(msg):
     """ Checks parity and returns decoded message if no errors. Returns False if error found.
     """
+    ack = True
     new_msg = ""
     for ch in msg:
         n = ord(ch)
         p = 1 & n
         n = n >> 1
         if p != get_parity(n):
-            return False
+            ack = False
 
         new_msg += chr(n)
 
-    return new_msg
+    return new_msg, ack
 
 def get_parity(n):
     """ Gets parity bit for number
