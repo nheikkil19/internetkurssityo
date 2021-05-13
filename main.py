@@ -19,7 +19,7 @@ from math import ceil
 # a functioning TCP part of the course work with little hassle.
 
 
-# python coursework.py 195.148.20.105 10000 HELLO\r\n
+# python main.py 195.148.20.105 10000 "HELLO ENC MUL PAR"
 
 BUFFERSIZE = 2048       # size of the receive buffer
 FS = "!8s??hh128s"      # format string for UDP-packet
