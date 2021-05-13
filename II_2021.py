@@ -23,7 +23,7 @@ from math import ceil
 
 BUFFERSIZE = 2048       # size of the receive buffer
 FS = "!8s??hh128s"      # format string for UDP-packet
-ENC = MUL = PAR = False
+ENC = PAR = False
 
 enc_keylist = []        # encryption keys are stored here
 dec_keylist = []        # decryption keys are stored here
@@ -94,75 +94,70 @@ def send_and_receive_udp(address, port, cid):
     msg = "Hello from {}".format(cid)
     # creates udp socket
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # loop
+    
+    # send and receive in a loop
     run = True
     while run:
+        # prints the message that will be sent
         scount += 1
-        print("{:<22}{}".format("CLIENT (UDP, {}):".format(scount), msg))
-        
+        print("{:<22}{}".format("CLIENT (UDP, {}):".format(scount), msg))    
 
-    
 
-        rm = len(msg)
+        remain = len(msg)
+        # splits message into parts for multipart messaging
         for piece in split_msg(msg):
-            con_len = len(piece)
-            rm -= con_len
+            con_len = len(piece)    # length of piece
+            remain -= con_len       # how much of message remaining
 
             # encryption
             if ENC and enc_keylist:
                 key = enc_keylist.pop(0)
-                piece = crypt_msg(piece, key)
-
-
-            
+                piece = crypt_msg(piece, key)            
             # parity
             if PAR:
                 piece = add_parity(piece)
 
-
-            
             # creates packet
-            packet = form_udp_packet(cid, ack, rm, con_len, piece)
+            packet = form_udp_packet(cid, ack, remain, con_len, piece)
             # sends packet
             sent_bytes = udp_socket.sendto(packet, (address, port))
             assert sent_bytes == calcsize(FS), "All bytes not sent"
 
-            # print("eom, dr, content", unpack_udp_packet(packet))
-            # print("sent", len(piece), len(piece.encode()), "rm =", rm)
-            # print("Packet sent")
         
+
         msg_recv = ""
+        # receive multipart messages in a loop
         while True:
             # receives packet
             packet_recv = udp_socket.recv(BUFFERSIZE)
             # reads the message from the received packet
             eom, dr, piece_recv = unpack_udp_packet(packet_recv)
             msg_recv += piece_recv
-            # print("received", len(piece_recv))
-            # print("Packet received")
+            # stop receiving multipart messages
             if dr == 0:
                 break
-
-
+        
+        # stop sending and receiving
         if eom:
             run = False
+        # remove parity and decrypt the message
         else:
             if PAR:
                 msg_recv, ack = check_parity(msg_recv)
                 if not ack:
                     msg = "Send again"
-
             # decryption
             if ENC:
                 temp = ""
+                # decrypt in pieces
                 for dec_piece in split_msg(msg_recv):
                     if dec_keylist:
                         key = dec_keylist.pop(0)
                         dec_piece = crypt_msg(dec_piece, key)
                     temp += dec_piece
                 msg_recv = temp
-                
-
+        
+        # print message if no errors found
         if ack:
             rcount += 1
             print("{:<22}{}".format("SERVER (UDP, {}):".format(rcount), msg_recv))
@@ -175,7 +170,6 @@ def send_and_receive_udp(address, port, cid):
 def form_udp_packet(cid, ack, rm, con_len, content):
     """ Forms the UDP-packet
     """
-    # packs the data
     data = pack(FS, cid.encode(), ack, False, rm, con_len, content.encode())
     return data
 
@@ -183,7 +177,7 @@ def unpack_udp_packet(packet):
     """ Unpacks the UDP-packet
     """
     # unpack packet
-    cid, ack, eom, dr, cl, content = unpack(FS, packet)
+    _, _, eom, dr, cl, content = unpack(FS, packet)
     # return content without padding
     return eom, dr, content.decode()[:cl]
 
@@ -192,9 +186,6 @@ def reverse_words(msg):
     """
     # creates list from words
     words = msg.split(" ")
-
-    # happens usually when decryption is wrong
-    assert len(words) > 1, "only one word to reverse, could be decrypting gone wrong"
     # reverses list
     words.reverse()
     # makes a string from list
@@ -242,7 +233,7 @@ def add_parity(msg):
     return new_msg
 
 def check_parity(msg):
-    """ Checks parity and returns decoded message if no errors. Returns False if error found.
+    """ Checks parity and returns decoded message and ack if parity check passed. 
     """
     ack = True
     new_msg = ""
@@ -291,9 +282,8 @@ def main():
         sys.exit(USAGE)
 
     # extra features
-    global ENC, MUL, PAR
+    global ENC, PAR
     ENC = "ENC" in message
-    MUL = "MUL" in message
     PAR = "PAR" in message
     send_and_receive_tcp(server_address, server_tcpport, message)
 
